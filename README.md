@@ -14,4 +14,4 @@ for (const auto& point : {{42, 42}, {23, 42}}) {
 }
 ```
 
-For more details please see [design doc](design/point_cloud_msg_wrapper-design.md).
+For more details please see [design doc](point_cloud_msg_wrapper/design/point_cloud_msg_wrapper-design.md).
