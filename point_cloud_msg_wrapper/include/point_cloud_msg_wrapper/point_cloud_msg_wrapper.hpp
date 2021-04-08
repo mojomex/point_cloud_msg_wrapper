@@ -264,7 +264,7 @@ public:
   {
     PointT point_copy{point};
     extend_data_by(sizeof(PointT));
-    m_cloud_ref.row_step += sizeof(PointT);
+    m_cloud_ref.row_step += static_cast<std::uint32_t>(sizeof(PointT));
     m_cloud_ref.width++;
     this->operator[](m_cloud_ref.width - 1U) = point_copy;
   }
@@ -451,7 +451,7 @@ private:
         &buffer[field_last_byte],
         std::numeric_limits<std::uint8_t>::max());
     }
-    for (auto i = 0U; i < static_cast<std::size_t>(sizeof(PointT)); ++i) {
+    for (auto i = 0U; i < sizeof(PointT); ++i) {
       buffer[i] = buffer[i] > 0 ? 0 : std::numeric_limits<std::uint8_t>::max();  // Flip all bits.
     }
     const PointT * const point_from_flipped_memory{reinterpret_cast<PointT *>(buffer)};
