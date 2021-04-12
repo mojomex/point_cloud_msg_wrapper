@@ -15,3 +15,10 @@ for (const auto& point : {{42, 42}, {23, 42}}) {
 ```
 
 For more details please see [design doc](point_cloud_msg_wrapper/design/point_cloud_msg_wrapper-design.md).
+
+
+## Acknowledgments
+
+Many thanks go to @xmfcx who has pointed out an idea to use an existing iterator instead of writing
+our own as well as for his reviews of the initial version of this code. This has significantly
+increased the readability and made the code less error prone. Thanks!
