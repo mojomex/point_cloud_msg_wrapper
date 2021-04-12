@@ -6,7 +6,8 @@
     <description>A point cloud message wrapper that allows for simple and safe msg usage</description>
     <maintainer email="opensource@apex.ai">Apex.AI, Inc.</maintainer>
     <license>Apache 2.0</license>
-    <author>Igor Bogoslavskyi</author>
+    <author email="igor.bogoslavskyi@apex.ai">Igor Bogoslavskyi</author>
+    <author email="mfc@leodrive.ai">M. Fatih Cırıt</author>
 
     <buildtool_depend>ament_cmake</buildtool_depend>
 
