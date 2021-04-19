@@ -347,9 +347,9 @@ public:
   }
 
   /// @brief      Resize the container to hold a given number of points.
-  COMPILE_IF_MUTABLE(CloudMsgT, void) resize(const size_t new_number_of_points) {
+  COMPILE_IF_MUTABLE(CloudMsgT, void) resize(const unsigned int new_number_of_points) {
     m_cloud_ref.width = new_number_of_points;
-    m_cloud_ref.row_step = m_cloud_ref.width * sizeof(PointT);
+    m_cloud_ref.row_step = m_cloud_ref.width * static_cast<unsigned int>(sizeof(PointT));
     m_cloud_ref.data.resize(m_cloud_ref.row_step);
   }
 
