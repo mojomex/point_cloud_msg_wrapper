@@ -65,7 +65,7 @@ void push_back_field(
   fields.emplace_back();
   fields.back()
   .set__name(name)
-  .set__offset(offset_of_return_ref(member_func))
+  .set__offset(static_cast<std::uint32_t>(offset_of_return_ref(member_func)))
   .set__datatype(get_field_datatype<MemberT>())
   .set__count(get_field_count<MemberT>());
 }
