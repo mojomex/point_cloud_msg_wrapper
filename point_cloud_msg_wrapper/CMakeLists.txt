@@ -8,10 +8,11 @@ if(NOT CMAKE_CXX_STANDARD)
   set(CMAKE_CXX_STANDARD 14)
 endif()
 
-add_compile_options(-Wall -Wextra -Wpedantic)
-
 find_package(ament_cmake_auto REQUIRED)
 ament_auto_find_build_dependencies()
+
+add_library(${PROJECT_NAME} INTERFACE)
+target_include_directories(${PROJECT_NAME} INTERFACE include/)
 
 if(BUILD_TESTING)
     # run common linters
@@ -21,6 +22,9 @@ if(BUILD_TESTING)
         test/test_field_generators.cpp
         test/test_point_cloud_msg_wrapper.cpp
     )
+    target_compile_options(${PROJECT_NAME}_test
+        PRIVATE -Wall -Wextra -Wpedantic -Wall -Wconversion -Werror)
+
     ament_target_dependencies(${PROJECT_NAME}_test
         "sensor_msgs"
         "geometry_msgs"

@@ -27,10 +27,10 @@
 #include <experimental/optional>
 #include <string>
 
-#include <tuple>
-#include <utility>
 #include <limits>
 #include <memory>
+#include <tuple>
+#include <utility>
 
 ///
 /// @brief      A help macro to simplify conditional compilation based on mutability.
@@ -59,9 +59,6 @@ using DefaultFieldGenerators = std::tuple<
   field_ring_generator,
   field_intensity_generator,
   field_timestamp_generator>;
-
-// Biggest std::size_t number. Used here explicitly as numeric_limits::max is not constexpr.
-constexpr std::size_t MAX = 18446744073709551615UL;
 }  // namespace detail
 
 ///
@@ -130,6 +127,9 @@ class PointCloudMsgWrapper
   using PointVectorType = detail::underlying_container_template<DataVectorT>::type<
     PointT, UPPER_BOUND, UnderlyingAllocatorType>;
 
+  using kSizeofPoint =
+    std::integral_constant<std::uint32_t, static_cast<std::uint32_t>(sizeof(PointT))>;
+
 public:
   using value_type = PointT;
   using iterator = typename PointVectorType::iterator;
@@ -175,6 +175,10 @@ public:
       detail::has_operator_equals<PointT>::value,
       "\n\nTo guarantee that all struct members are present in the fields of the message, "
       "the point struct needs an equality operator defined.\n\n");
+    static_assert(
+      sizeof(PointT) < static_cast<std::size_t>(UINT32_MAX),
+      "\n\nOnly points with sizeof that fits in uint32_t are supported\n\n");
+
     if (!m_cloud_ref.fields.empty()) {
       throw std::runtime_error(
               "Trying to reset a non-empty point cloud message."
@@ -207,7 +211,7 @@ public:
           // Note that we use find on a vector here. This is intended. The number of fields is
           // usually very limited, so the O(n^2) complexity is ok here. This operation also only
           // takes place roughly once per message. The subsequent read/write operations are then
-          // appopriately fast.
+          // appropriately fast.
           const auto corresponding_field_iter = std::find_if(
             source_fields.begin(), source_fields.end(), [&query_field](const auto & field) {
               const bool equal{
@@ -238,7 +242,7 @@ public:
       }
       return false;
     }
-    if (cloud_msg.point_step != sizeof(PointT)) {
+    if (cloud_msg.point_step != kSizeofPoint::value) {
       if (error_msg) {
         *error_msg =
           "Point cloud was created with a point of different sizeof. "
@@ -273,7 +277,7 @@ public:
   COMPILE_IF_MUTABLE(CloudMsgT, void) push_back(PointT && point)
   {
     extend_data_by(sizeof(PointT));
-    m_cloud_ref.row_step += sizeof(PointT);
+    m_cloud_ref.row_step += static_cast<std::uint32_t>(sizeof(PointT));
     m_cloud_ref.width++;
     this->operator[](m_cloud_ref.width - 1U) = std::move(point);
   }
@@ -347,9 +351,9 @@ public:
   }
 
   /// @brief      Resize the container to hold a given number of points.
-  COMPILE_IF_MUTABLE(CloudMsgT, void) resize(const size_t new_number_of_points) {
+  COMPILE_IF_MUTABLE(CloudMsgT, void) resize(const std::uint32_t new_number_of_points) {
     m_cloud_ref.width = new_number_of_points;
-    m_cloud_ref.row_step = m_cloud_ref.width * sizeof(PointT);
+    m_cloud_ref.row_step = m_cloud_ref.width * kSizeofPoint::value;
     m_cloud_ref.data.resize(m_cloud_ref.row_step);
   }
 
@@ -468,7 +472,7 @@ private:
 /// A typedef for the PointCloudMsgWrapper to represent a view that wraps a const cloud message.
 template<typename PointT, typename FieldGenerators = detail::DefaultFieldGenerators>
 using PointCloud2View =
-  PointCloudMsgWrapper<PointT, const sensor_msgs::msg::PointCloud2, FieldGenerators, detail::MAX>;
+  PointCloudMsgWrapper<PointT, const sensor_msgs::msg::PointCloud2, FieldGenerators, SIZE_MAX>;
 
 /// A typedef for the PointCloudMsgWrapper to represent a view that wraps a const cloud message.
 template<typename PointT, size_t BOUND, typename FieldGenerators = detail::DefaultFieldGenerators>
@@ -478,7 +482,7 @@ using BoundedPointCloud2View =
 /// A typedef for the PointCloudMsgWrapper to represent a view that wraps a mutable cloud message.
 template<typename PointT, typename FieldGenerators = detail::DefaultFieldGenerators>
 using PointCloud2Modifier =
-  PointCloudMsgWrapper<PointT, sensor_msgs::msg::PointCloud2, FieldGenerators, detail::MAX>;
+  PointCloudMsgWrapper<PointT, sensor_msgs::msg::PointCloud2, FieldGenerators, SIZE_MAX>;
 
 /// A typedef for the PointCloudMsgWrapper to represent a view that wraps a mutable cloud message.
 template<typename PointT, size_t BOUND, typename FieldGenerators = detail::DefaultFieldGenerators>
