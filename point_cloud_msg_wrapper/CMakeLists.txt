@@ -22,14 +22,24 @@ if(BUILD_TESTING)
         test/test_field_generators.cpp
         test/test_point_cloud_msg_wrapper.cpp
     )
-    target_compile_options(${PROJECT_NAME}_test
-        PRIVATE -Wall -Wextra -Wpedantic -Wall -Wconversion -Werror)
+    target_compile_options(${PROJECT_NAME}_test PRIVATE
+        -Wall
+        -Wextra
+        -Wpedantic
+        -Wall
+        -Wconversion
+        -Wsign-conversion
+        -Werror
+        -Wshadow
+        -Wcast-align
+        -Wunused
+        -Wsign-conversion
+        -Wdouble-promotion)
 
-    ament_target_dependencies(${PROJECT_NAME}_test
-        "sensor_msgs"
-        "geometry_msgs"
-    )
-    target_include_directories(${PROJECT_NAME}_test PRIVATE "include")
+    ament_target_dependencies(${PROJECT_NAME}_test sensor_msgs geometry_msgs)
+    target_include_directories(${PROJECT_NAME}_test PRIVATE include)
+    target_include_directories(${PROJECT_NAME}_test SYSTEM PRIVATE ${GTEST_INCLUDE_DIRS})
+
 endif()
 
 ament_auto_package()
