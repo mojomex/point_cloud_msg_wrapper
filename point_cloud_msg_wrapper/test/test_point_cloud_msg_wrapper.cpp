@@ -124,26 +124,27 @@ using point_cloud_msg_wrapper::PointCloud2Modifier;
 /// @test Test that for any of the different types of points we can read and write them into msg.
 TYPED_TEST(PointCloudMsgWrapperTest, ReadingAndWritingGenericPoints)
 {
-  using PointT = typename TestFixture::PointT;
+  using Point = typename TestFixture::PointT;
   sensor_msgs::msg::PointCloud2 msg;
 
   // Cannot initialize a wrapper without resetting an empty message.
-  EXPECT_THROW(PointCloud2View<PointT>{msg}, std::runtime_error);
-  EXPECT_THROW(PointCloud2Modifier<PointT>{msg}, std::runtime_error);
+  EXPECT_THROW(PointCloud2View<Point>{msg}, std::runtime_error);
+  EXPECT_THROW(PointCloud2Modifier<Point>{msg}, std::runtime_error);
 
-  PointCloud2Modifier<PointT> cloud_wrapper{msg, "some_frame_id"};
+  PointCloud2Modifier<Point> cloud_wrapper{msg, "some_frame_id"};
+  EXPECT_EQ(msg.header.frame_id, "some_frame_id");
 
-  const auto point = create_point<PointT>();
+  const auto point = create_point<Point>();
 
   ASSERT_FALSE(msg.fields.empty());
   ASSERT_FALSE(msg.fields.front().name.empty());
   ASSERT_NO_THROW(cloud_wrapper.push_back(point));
 
-  ASSERT_FALSE(PointCloud2View<PointNotPresentInAllPointTypes>::can_be_created_from(msg));
   ASSERT_THROW(PointCloud2View<PointNotPresentInAllPointTypes>{msg}, std::runtime_error);
   ASSERT_THROW(PointCloud2Modifier<PointNotPresentInAllPointTypes>{msg}, std::runtime_error);
 
-  const auto initialized_wrapper = PointCloud2Modifier<PointT>{msg};
+  ASSERT_TRUE(PointCloud2Modifier<Point>::can_be_created_from(msg));
+  const auto initialized_wrapper = PointCloud2Modifier<Point>{msg};
   ASSERT_EQ(initialized_wrapper.size(), 1U);
   EXPECT_EQ(initialized_wrapper.at(0U), point);
   EXPECT_EQ(initialized_wrapper[0U], point);
@@ -151,7 +152,7 @@ TYPED_TEST(PointCloudMsgWrapperTest, ReadingAndWritingGenericPoints)
   EXPECT_EQ(initialized_wrapper.size(), 2U);
 
   const auto & const_cloud = msg;
-  const PointCloud2View<PointT> const_wrapper{const_cloud};
+  const PointCloud2View<Point> const_wrapper{const_cloud};
   ASSERT_EQ(const_wrapper.size(), 2U);
   EXPECT_EQ(const_wrapper.at(0U), point);
   EXPECT_EQ(const_wrapper[0U], point);
@@ -159,10 +160,10 @@ TYPED_TEST(PointCloudMsgWrapperTest, ReadingAndWritingGenericPoints)
   EXPECT_EQ(const_wrapper[1U], point);
 
   // Test that we can iterate over the message.
-  std::array<PointT, 2U> points;
+  std::array<Point, 2U> points;
   std::size_t index{};
-  for (const auto & point : cloud_wrapper) {
-    points[index] = point;
+  for (const auto & p : cloud_wrapper) {
+    points[index] = p;
     index++;
   }
   ASSERT_EQ(points.size(), cloud_wrapper.size());
@@ -180,51 +181,54 @@ TYPED_TEST(PointCloudMsgWrapperTest, ReadingAndWritingGenericPoints)
   }
 
   // Change values.
-  for (auto & point : cloud_wrapper) {
-    point = PointT{};
+  for (auto & p : cloud_wrapper) {
+    p = Point{};
   }
-  for (const auto & point : cloud_wrapper) {
-    EXPECT_EQ(PointT{}, point);
+  for (const auto & p : cloud_wrapper) {
+    EXPECT_EQ(Point{}, p);
   }
 
   cloud_wrapper.clear();
   EXPECT_TRUE(cloud_wrapper.empty());
 
   // Cannot reinitialize an already initialized message.
-  EXPECT_THROW(PointCloud2Modifier<PointT>(msg, "some_new_frame_id"), std::runtime_error);
+  EXPECT_THROW(PointCloud2Modifier<Point>(msg, "some_new_frame_id"), std::runtime_error);
+  cloud_wrapper.reset_msg("some_new_frame_id");
+  EXPECT_EQ(msg.header.frame_id, "some_new_frame_id");
+  EXPECT_TRUE(cloud_wrapper.empty());
 }
 
 /// @test Check that using using iterator including std::back_inserter is possible with the wrapper.
 TYPED_TEST(PointCloudMsgWrapperTest, Iterators) {
-  using PointT = typename TestFixture::PointT;
+  using Point = typename TestFixture::PointT;
   sensor_msgs::msg::PointCloud2 msg;
-  PointCloud2Modifier<PointT> cloud_wrapper{msg, "some_frame_id"};
-  std::array<PointT, 2U> points{{create_point<PointT>(), PointT{}}};
+  PointCloud2Modifier<Point> cloud_wrapper{msg, "some_frame_id"};
+  std::array<Point, 2U> points{{create_point<Point>(), Point{}}};
   // Fill the message from an array.
   std::transform(
     points.cbegin(), points.cend(), std::back_inserter(cloud_wrapper),
-    [](const PointT & point) {return point;});
+    [](const Point & point) {return point;});
   ASSERT_EQ(points.size(), cloud_wrapper.size());
   for (auto i = 0U; i < points.size(); ++i) {
     EXPECT_EQ(points[i], cloud_wrapper[i]);
   }
   // Change existing values.
   for (auto & point : cloud_wrapper) {
-    point = PointT{};
+    point = Point{};
   }
   const auto & const_cloud = msg;
-  const PointCloud2View<PointT> const_wrapper{const_cloud};
+  const PointCloud2View<Point> const_wrapper{const_cloud};
   for (const auto & point : const_wrapper) {
-    EXPECT_EQ(PointT{}, point);
+    EXPECT_EQ(Point{}, point);
   }
 
   // Check the reverse iteration.
   for (auto riter = const_wrapper.rbegin(); riter != const_wrapper.rend(); ++riter) {
-    EXPECT_EQ(PointT{}, *riter);
+    EXPECT_EQ(Point{}, *riter);
   }
 }
 
-/// @test Check initialization with a compicated type with an additional custom field.
+/// @test Check initialization with a complicated type with an additional custom field.
 TEST(PointCloudMsgWrapperTest, ProcessPointWithCustomField) {
   sensor_msgs::msg::PointCloud2 msg;
   // There is no matching field generator for non_standard_test_field present.
@@ -356,5 +360,5 @@ GeometryPointXYZ create_point()
   return point;
 }
 template<>
-CustomAlignedPoint create_point() {return CustomAlignedPoint{42.0F, 23.0F, 4242.0F, 23, 2323.0F};}
+CustomAlignedPoint create_point() {return CustomAlignedPoint{42.0F, 23.0F, 4242.0F, 23, 2323.0};}
 }  // namespace

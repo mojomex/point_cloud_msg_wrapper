@@ -268,7 +268,7 @@ public:
   {
     PointT point_copy{point};
     extend_data_by(sizeof(PointT));
-    m_cloud_ref.row_step += static_cast<std::uint32_t>(sizeof(PointT));
+    m_cloud_ref.row_step += kSizeofPoint::value;
     m_cloud_ref.width++;
     this->operator[](m_cloud_ref.width - 1U) = point_copy;
   }
@@ -277,7 +277,7 @@ public:
   COMPILE_IF_MUTABLE(CloudMsgT, void) push_back(PointT && point)
   {
     extend_data_by(sizeof(PointT));
-    m_cloud_ref.row_step += static_cast<std::uint32_t>(sizeof(PointT));
+    m_cloud_ref.row_step += kSizeofPoint::value;
     m_cloud_ref.width++;
     this->operator[](m_cloud_ref.width - 1U) = std::move(point);
   }
@@ -414,11 +414,11 @@ private:
     // TODO(igor): All these settings can also be specified through some input struct if needed in
     // the future. This is omitted for now.
     m_cloud_ref.fields = generated_fields;
-    m_cloud_ref.height = 1U;
+    m_cloud_ref.height = 1;
     m_cloud_ref.is_bigendian = false;
     m_cloud_ref.is_dense = false;
     m_cloud_ref.header.frame_id = frame_id;
-    m_cloud_ref.point_step = sizeof(PointT);
+    m_cloud_ref.point_step = kSizeofPoint::value;
     m_cloud_ref.data.clear();
     m_cloud_ref.width = 0U;
     m_cloud_ref.row_step = 0U;
