@@ -34,9 +34,6 @@ test:
   image: osrf/ros:foxy-desktop
   dependencies:
     - build
-  before_script:
-    - apt-get update
-    - apt-get install -y ros-foxy-apex-test-tools ros-foxy-foonathan-memory-vendor
   script:
     - tar xf opt.tar.gz -C /
     - '
