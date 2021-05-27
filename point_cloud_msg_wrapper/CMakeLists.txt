@@ -30,7 +30,6 @@ if(BUILD_TESTING)
         -Wconversion
         -Wsign-conversion
         -Werror
-        -Wshadow
         -Wcast-align
         -Wunused
         -Wsign-conversion

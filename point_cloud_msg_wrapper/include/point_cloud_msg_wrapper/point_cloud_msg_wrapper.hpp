@@ -432,7 +432,7 @@ private:
       sum_of_all_fields_sizes +=
         static_cast<std::int32_t>(field.count) * sizeof_field(field.datatype);
     }
-    if (sum_of_all_fields_sizes == sizeof(PointT)) {
+    if (sum_of_all_fields_sizes == static_cast<std::int32_t>(sizeof(PointT))) {
       // The generated fields cover all members of the struct without gaps.
       return true;
     }
