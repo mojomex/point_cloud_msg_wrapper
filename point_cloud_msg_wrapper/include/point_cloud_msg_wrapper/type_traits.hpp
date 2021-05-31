@@ -19,6 +19,7 @@
 #define POINT_CLOUD_MSG_WRAPPER__TYPE_TRAITS_HPP_
 
 #include <type_traits>
+#include <cstdint>
 
 namespace point_cloud_msg_wrapper
 {
@@ -47,30 +48,16 @@ struct has_operator_equals_impl
 template<class T, class EqualTo = T>
 struct has_operator_equals : has_operator_equals_impl<T, EqualTo>::type {};
 
-/// Detect the template type used under the hood of the given allocator type.
-/// Provided std::allocator<int> type will be std::allocator.
-template<class AllocatorT>
-struct underlying_allocator_template;
-
-template<class ValueT, template<class> class AllocatorT>
-struct underlying_allocator_template<AllocatorT<ValueT>>
-{
-  template<class T>
-  using type = AllocatorT<T>;
-};
-
-
 /// Detect the template type used under the hood.
 /// Provided std::vector<int> type will be std::vector.
-template<class ContainerT>
-struct underlying_container_template;
+template<class ContainerT, class PointT>
+struct derived_point_vector;
 
 /// An overload for a container like an std::vector<int, std::allocator<int>>.
-template<class ValueT, class AllocatorT, template<class, class> class ContainerT>
-struct underlying_container_template<ContainerT<ValueT, AllocatorT>>
+template<class ValueT, class AllocatorT, template<class, class> class ContainerT, class PointT>
+struct derived_point_vector<ContainerT<ValueT, AllocatorT>, PointT>
 {
-  template<class T, std::size_t UNUSED_UPPER_BOUND, class A>
-  using type = ContainerT<T, A>;
+  using type = ContainerT<PointT, AllocatorT>;
 };
 
 /// An overload for containers like a bounded_vector<int, 100U, std::allocator<int>>.
@@ -78,11 +65,15 @@ template<
   class ValueT,
   std::size_t UPPER_BOUND,
   class AllocatorT,
-  template<class, std::size_t, class> class ContainerT>
-struct underlying_container_template<ContainerT<ValueT, UPPER_BOUND, AllocatorT>>
+  template<class, std::size_t, class> class ContainerT,
+  class PointT>
+struct derived_point_vector<ContainerT<ValueT, UPPER_BOUND, AllocatorT>, PointT>
 {
-  template<class T, std::size_t BOUND, class A>
-  using type = ContainerT<T, BOUND, A>;
+  using kPointCapacity = std::integral_constant<
+    std::uint32_t, ContainerT<ValueT, UPPER_BOUND, AllocatorT>::capacity() /
+    static_cast<std::uint32_t>(sizeof(PointT))>;
+  using type =
+    ContainerT<PointT, kPointCapacity::value, AllocatorT>;
 };
 
 }  // namespace detail

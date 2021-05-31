@@ -25,21 +25,21 @@
 namespace point_cloud_msg_wrapper
 {
 
-inline std::int32_t sizeof_field(const std::uint8_t datatype)
+inline std::uint32_t sizeof_field(const std::uint8_t datatype)
 {
   switch (datatype) {
     case sensor_msgs::msg::PointField::INT8:
     case sensor_msgs::msg::PointField::UINT8:
-      return 2;
+      return 2U;
     case sensor_msgs::msg::PointField::INT16:
     case sensor_msgs::msg::PointField::UINT16:
-      return 2;
+      return 2U;
     case sensor_msgs::msg::PointField::INT32:
     case sensor_msgs::msg::PointField::UINT32:
     case sensor_msgs::msg::PointField::FLOAT32:
-      return 4;
+      return 4U;
     case sensor_msgs::msg::PointField::FLOAT64:
-      return 8;
+      return 8U;
   }
   throw std::runtime_error("Unexpected datatype provided");
 }
