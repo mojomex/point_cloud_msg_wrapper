@@ -5,13 +5,8 @@ stages:
 
 build:
   stage: build
-  image: osrf/ros:rolling-desktop
+  image: osrf/ros:galactic-desktop
   script:
-    - |
-      rm -rf /etc/apt/sources.list.d/ros2*;
-      curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key  -o /usr/share/keyrings/ros-archive-keyring.gpg;
-      echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu bionic main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null;
-    - apt-get update
     - rosdep update
     - rosdep install --from point_cloud_msg_wrapper --ignore-src -y
     - mkdir -p /opt/point_cloud_msg_wrapper
@@ -35,7 +30,7 @@ build:
 
 test:
   stage: test
-  image: osrf/ros:rolling-desktop
+  image: osrf/ros:galactic-desktop
   dependencies:
     - build
   script:
