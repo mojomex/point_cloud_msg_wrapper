@@ -57,7 +57,8 @@ struct derived_point_vector;
 template<class ValueT, class AllocatorT, template<class, class> class ContainerT, class PointT>
 struct derived_point_vector<ContainerT<ValueT, AllocatorT>, PointT>
 {
-  using type = ContainerT<PointT, AllocatorT>;
+  template<class CloudAllocatorT>
+  using type = ContainerT<PointT, CloudAllocatorT>;
 };
 
 /// An overload for containers like a bounded_vector<int, 100U, std::allocator<int>>.
@@ -72,8 +73,10 @@ struct derived_point_vector<ContainerT<ValueT, UPPER_BOUND, AllocatorT>, PointT>
   using kPointCapacity = std::integral_constant<
     std::uint32_t, ContainerT<ValueT, UPPER_BOUND, AllocatorT>::capacity() /
     static_cast<std::uint32_t>(sizeof(PointT))>;
+
+  template<class CloudAllocatorT>
   using type =
-    ContainerT<PointT, kPointCapacity::value, AllocatorT>;
+    ContainerT<PointT, kPointCapacity::value, CloudAllocatorT>;
 };
 
 }  // namespace detail
