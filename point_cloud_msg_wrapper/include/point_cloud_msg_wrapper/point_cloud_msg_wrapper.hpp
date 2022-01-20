@@ -24,7 +24,6 @@
 #include <point_cloud_msg_wrapper/type_traits.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 
-#include <experimental/optional>
 #include <string>
 
 #include <limits>
@@ -223,7 +222,7 @@ public:
   {
     const auto find_missing_field = [](
       const auto & query_fields,
-      const auto & source_fields) -> std::experimental::optional<FieldNameT> {
+      const auto & source_fields) -> const FieldNameT * {
         for (const auto & query_field : query_fields) {
           // Note that we use find on a vector here. This is intended. The number of fields is
           // usually very limited, so the O(n^2) complexity is ok here. This operation also only
@@ -237,9 +236,9 @@ public:
               return equal;
             });
           const auto found_corresponding_field = (corresponding_field_iter != source_fields.end());
-          if (!found_corresponding_field) {return query_field.name;}
+          if (!found_corresponding_field) {return &query_field.name;}
         }
-        return {};
+        return nullptr;
       };
 
     const auto struct_fields = generate_fields_from_point<PointT, FieldGenerators>();
@@ -247,7 +246,7 @@ public:
     if (missing_field_in_cloud) {
       if (error_msg) {
         *error_msg = "Point struct has a field that the cloud does not! Field: " +
-          missing_field_in_cloud.value();
+          *missing_field_in_cloud;
       }
       return false;
     }
@@ -255,7 +254,7 @@ public:
     if (missing_field_in_struct) {
       if (error_msg) {
         *error_msg = "Cloud has a field that the point struct does not! Field: " +
-          missing_field_in_struct.value();
+          *missing_field_in_struct;
       }
       return false;
     }
