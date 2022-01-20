@@ -222,7 +222,7 @@ public:
   {
     const auto find_missing_field = [](
       const auto & query_fields,
-      const auto & source_fields) -> const FieldNameT* {
+      const auto & source_fields) -> const FieldNameT * {
         for (const auto & query_field : query_fields) {
           // Note that we use find on a vector here. This is intended. The number of fields is
           // usually very limited, so the O(n^2) complexity is ok here. This operation also only
