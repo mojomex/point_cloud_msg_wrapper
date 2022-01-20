@@ -19,6 +19,7 @@
 #include <point_cloud_msg_wrapper/default_field_generators.hpp>
 #include <point_cloud_msg_wrapper/field_generators.hpp>
 #include <point_cloud_msg_wrapper/point_cloud_msg_wrapper.hpp>
+#include <point_cloud_msg_wrapper/test_point_types.hpp>
 
 #include <gtest/gtest.h>
 
@@ -30,74 +31,24 @@
 
 namespace
 {
-struct PointX;
-struct PointXYZI;
-struct PointXYWithVirtualDestructor;
-class ClassPointXY;
-using GeometryPointXYZ = geometry_msgs::msg::Point32;
-
-template<typename T,
-  std::enable_if_t<std::is_floating_point<T>::value> * = nullptr>
-constexpr bool nearly_equal(
-  const T & a,
-  const T & b,
-  const T & epsilon = std::numeric_limits<T>::epsilon()) noexcept
-{
-  return std::fabs(a - b) <=
-         (epsilon * std::max(std::fabs(a), std::fabs(b)));
-}
-
-
-struct PointWithCustomField
-{
-  float x;
-  double non_standard_test_field;
-  std::int32_t y;
-  friend bool operator==(const PointWithCustomField & p1, const PointWithCustomField & p2) noexcept
-  {
-    return
-      ::nearly_equal(p1.x, p2.x) &&
-      ::nearly_equal(p1.non_standard_test_field, p2.non_standard_test_field) &&
-      (p1.y == p2.y);
-  }
-};
-
-struct CustomAlignedPoint
-{
-  float x;
-  float y;
-  float z;
-  alignas(double) std::uint8_t intensity;
-  double timestamp;
-  friend bool operator==(const CustomAlignedPoint & p1, const CustomAlignedPoint & p2) noexcept
-  {
-    return
-      ::nearly_equal(p1.x, p2.x) &&
-      ::nearly_equal(p1.y, p2.y) &&
-      ::nearly_equal(p1.z, p2.z) &&
-      ::nearly_equal(p1.timestamp, p2.timestamp) &&
-      (p1.intensity == p2.intensity);
-  }
-};
-
-struct PointNotPresentInAllPointTypes {std::int8_t x;};
-
-template<typename PointT>
-PointT create_point() {return PointT{};}
-template<>
-PointX create_point();
-template<>
-PointXYZI create_point();
-template<>
-ClassPointXY create_point();
-template<>
-PointXYWithVirtualDestructor create_point();
-template<>
-GeometryPointXYZ create_point();
-template<>
-CustomAlignedPoint create_point();
 
 LIDAR_UTILS__DEFINE_FIELD_GENERATOR_FOR_MEMBER(non_standard_test_field);
+
+
+using point_cloud_msg_wrapper::PointCloud2View;
+using point_cloud_msg_wrapper::PointCloud2Modifier;
+using point_cloud_msg_wrapper::PointCloud2PartialView;
+using point_cloud_msg_wrapper::PointCloud2PartialModifier;
+
+using point_cloud_msg_wrapper::test::PointX;
+using point_cloud_msg_wrapper::test::PointXYZI;
+using point_cloud_msg_wrapper::test::ClassPointXY;
+using point_cloud_msg_wrapper::test::PointXYWithVirtualDestructor;
+using point_cloud_msg_wrapper::test::CustomAlignedPoint;
+using point_cloud_msg_wrapper::test::GeometryPointXYZ;
+using point_cloud_msg_wrapper::test::PointNotPresentInAllPointTypes;
+using point_cloud_msg_wrapper::test::PointWithCustomField;
+using point_cloud_msg_wrapper::test::create_point;
 
 }  // namespace
 
@@ -118,8 +69,6 @@ using AllPointTypes = ::testing::Types<
 // cppcheck-suppress syntaxError - trailing comma is the only way to remove the compiler warning.
 TYPED_TEST_CASE(PointCloudMsgWrapperTest, AllPointTypes, );
 
-using point_cloud_msg_wrapper::PointCloud2View;
-using point_cloud_msg_wrapper::PointCloud2Modifier;
 
 /// @test Test that for any of the different types of points we can read and write them into msg.
 TYPED_TEST(PointCloudMsgWrapperTest, ReadingAndWritingGenericPoints)
@@ -268,97 +217,60 @@ TEST(PointCloudMsgWrapperTest, ProcessPointWithCustomField) {
 
 /// @test Check that a macro we use for readability is not leaking outside of the header file.
 TEST(PointCloudMsgWrapperTest, CompilationMacroIsUnset) {
-  #ifdef COMPILE_IF_MUTABLE
+  #ifdef COMPILE_IF
   FAIL() << "Compilation macro should not be available outside of point_cloud_msg_wrapper.hpp file";
   #endif
 }
 
+/// @test Check that we can read partial data from a point cloud.
+TEST(PointCloudMsgWrapperTest, PartialDataAccess) {
+  sensor_msgs::msg::PointCloud2 msg;
+  PointCloud2Modifier<PointXYZI> modifier{msg, "frame_id"};
+  const auto point = create_point<PointXYZI>();
+  modifier.push_back(point);
+  modifier.push_back(point);
+  EXPECT_FALSE(PointCloud2View<PointX>::can_be_created_from(msg));
+  EXPECT_FALSE(PointCloud2Modifier<PointX>::can_be_created_from(msg));
+  EXPECT_TRUE(PointCloud2PartialView<PointX>::can_be_created_from(msg));
+  EXPECT_TRUE(PointCloud2PartialModifier<PointX>::can_be_created_from(msg));
+  EXPECT_FALSE(PointCloud2PartialView<PointNotPresentInAllPointTypes>::can_be_created_from(msg));
+  PointCloud2PartialView<PointX> partial_view{msg};
+  EXPECT_FLOAT_EQ(partial_view[0].x, point.x);
 
-namespace
-{
+  PointCloud2PartialModifier<PointX> partial_modifier{msg};
+  partial_modifier[0].x = 0.0F;
+  EXPECT_FLOAT_EQ(partial_view[0].x, 0.0F);
+  PointCloud2View<PointXYZI> full_view{msg};
+  EXPECT_FLOAT_EQ(full_view[0].x, 0.0F);
+  EXPECT_FLOAT_EQ(full_view[0].y, point.y);
+  EXPECT_FLOAT_EQ(full_view[0].z, point.z);
+  EXPECT_EQ(full_view[0].id, point.id);
 
-struct PointX
-{
-  float x;
-  friend bool operator==(const PointX & p1, const PointX & p2) noexcept
-  {
-    return ::nearly_equal(p1.x, p2.x);
+  for (auto & iter_point : partial_modifier) {
+    iter_point.x = 1.0F;
   }
-};
+  auto modified_point = point;
+  modified_point.x = 1.0F;
+  PointX point_x{1.0F};
+  EXPECT_EQ(full_view[0], modified_point);
+  EXPECT_EQ(partial_view.front(), point_x);
+  EXPECT_EQ(partial_modifier.front(), point_x);
+  EXPECT_EQ(partial_view.back(), point_x);
+  EXPECT_EQ(partial_modifier.back(), point_x);
 
-class ClassPointXY
-{
-public:
-  ClassPointXY() = default;
-  explicit ClassPointXY(float x, float y)
-  : x_{x}, y_{y} {}
+  const auto point_xy = create_point<ClassPointXY>();
+  PointCloud2PartialModifier<ClassPointXY>{msg}.front() = point_xy;
+  EXPECT_EQ(full_view.front().x, point_xy.x());
+  EXPECT_EQ(full_view.front().y, point_xy.y());
+  EXPECT_EQ(full_view.front().z, modified_point.z);
+  EXPECT_EQ(full_view.front().id, modified_point.id);
 
-  float & x() {return x_;}
-  const float & x() const {return x_;}
-  float & y() {return y_;}
-  const float & y() const {return y_;}
-
-  friend bool operator==(const ClassPointXY & p1, const ClassPointXY & p2) noexcept
-  {
-    return ::nearly_equal(p1.x_, p2.x_) &&
-           ::nearly_equal(p1.y_, p2.y_);
-  }
-
-private:
-  float x_;
-  float y_;
-};
-
-struct PointXYZI
-{
-  float x;
-  float y;
-  float z;
-  std::int64_t id;
-  friend bool operator==(const PointXYZI & p1, const PointXYZI & p2) noexcept
-  {
-    return ::nearly_equal(p1.x, p2.x) &&
-           ::nearly_equal(p1.y, p2.y) &&
-           ::nearly_equal(p1.z, p2.z) &&
-           (p1.id == p2.id);
-  }
-};
-
-struct PointXYWithVirtualDestructor
-{
-  PointXYWithVirtualDestructor() = default;
-  PointXYWithVirtualDestructor(float x_, float y_)
-  : x{x_}, y{y_} {}
-
-  virtual ~PointXYWithVirtualDestructor() {}
-
-  friend bool operator==(
-    const PointXYWithVirtualDestructor & p1,
-    const PointXYWithVirtualDestructor & p2) noexcept
-  {
-    return ::nearly_equal(p1.x, p2.x) &&
-           ::nearly_equal(p1.y, p2.y);
-  }
-
-  float x{};
-  float y{};
-};
-
-template<>
-PointX create_point() {return PointX{42.0F};}
-template<>
-PointXYZI create_point() {return PointXYZI{42.0F, 23.0F, 13.0F, 42LL};}
-template<>
-ClassPointXY create_point() {return ClassPointXY{42.0F, 23.0F};}
-template<>
-PointXYWithVirtualDestructor create_point() {return PointXYWithVirtualDestructor{42.0F, 23.0F};}
-template<>
-GeometryPointXYZ create_point()
-{
-  GeometryPointXYZ point;
-  point.set__x(42.0F).set__y(23.0F).set__x(13.0F);
-  return point;
+  sensor_msgs::msg::PointCloud2 msg_x;
+  PointCloud2Modifier<PointX> modifier_x{msg_x, "frame_id"};
+  std::transform(
+    partial_view.begin(), partial_view.end(), std::back_inserter(modifier_x),
+    [](const auto & point_x) {return point_x;});
+  EXPECT_EQ(modifier_x.size(), 2UL);
+  EXPECT_FLOAT_EQ(modifier_x.front().x, full_view.front().x);
+  EXPECT_FLOAT_EQ(modifier_x.back().x, full_view.back().x);
 }
-template<>
-CustomAlignedPoint create_point() {return CustomAlignedPoint{42.0F, 23.0F, 4242.0F, 23, 2323.0};}
-}  // namespace

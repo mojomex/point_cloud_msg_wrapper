@@ -34,16 +34,16 @@
 ///
 /// @brief      A help macro to simplify conditional compilation based on mutability.
 ///
-///             This macro just wraps the SFINAE paradigm and enables compilation only if the
-///             QUERY_TYPE is mutable. This macro is replaced by RETURN_TYPE in this case. If
-///             QUERY_TYPE is const, the code following this macro invocation will not be compiled.
+/// @details    This macro just wraps the SFINAE paradigm and enables compilation only if the
+///             CONDITION is true. This macro is replaced by RETURN_TYPE in this case. If
+///             CONDITION is false, the code following this macro invocation will not be compiled.
 ///
-/// @param      QUERY_TYPE   The query type to be checked for mutability.
+/// @param      CONDITION    The condition which, if false, stops compilation
 /// @param      RETURN_TYPE  The return type generated if compilation succeeds.
 ///
-#define COMPILE_IF_MUTABLE(QUERY_TYPE, RETURN_TYPE) \
-  template<typename DummyCloudMsgT = QUERY_TYPE> \
-  std::enable_if_t<!std::is_const<DummyCloudMsgT>::value, RETURN_TYPE> \
+#define COMPILE_IF(CONDITION, RETURN_TYPE) \
+  template<typename DummyCloudMsgT = CloudMsgT> \
+  std::enable_if_t<!std::is_trivial<DummyCloudMsgT>::value && CONDITION, RETURN_TYPE> \
 
 namespace point_cloud_msg_wrapper
 {
@@ -78,15 +78,16 @@ using DefaultFieldGenerators = std::tuple<
 ///             create the wrapper once per message in a function scope and batch all the read/write
 ///             operations afterwards.
 ///
-///             For convenience, there are two typedefs: PointCloud2View and PointCloud2Modifier.
-///             - PointCloudView<PointT>{msg} wraps a constant point cloud and allows read-only
-///               access. Modification through this view is impossible.
-///             - PointCloud2Modifier<PointT>{msg} wraps a mutable message and allows read-write
-///               access to the underlying data.
-///             - PointCloud2Modifier<PointT>{msg, new_frame_id} initializes an empty mutable
-///               message. This constructor is to be used solely to initialize a new message and
-///               will throw if the point cloud message is already initialized (i.e., has non-zero
-///               number of fields).
+///             For convenience, there are 4 typedefs:
+///             - PointCloud2View - wraps a constant point cloud and allows read-only access.
+///               Modification through this view is impossible.
+///             - PointCloud2Modifier - wraps a mutable message and allows read-write access to the
+///               underlying data. There is also a constructor through which the fields of the
+///               underlying message can be generated from the given point structure.
+///             - PointCloud2PartialView - wraps a constant point cloud and allows read-only
+///               _partial_ access to the data.
+///             - PointCloud2PartialModifier - wraps a mutable message and allows read-write
+///               _partial_ access to the data, i.e., it allows to get a subset of the fields.
 ///
 /// @warning    This class wraps a raw reference, so the user is responsible to use it in such a way
 ///             that the underlying point cloud message is not deleted before the wrapper.
@@ -101,6 +102,7 @@ using DefaultFieldGenerators = std::tuple<
 ///                              LIDAR_UTILS__DEFINE_FIELD_GENERATOR_FOR_MEMBER if needed.
 /// @tparam     kIsMutable       Define if the point cloud message is mutable. Used to conditionally
 ///                              compile certain functions.
+/// @tparam     kPartialAccess   Define if the partial access to the data is allowed.
 /// @tparam     AllocatorT       The message allocator type. This allocator type must be rebindable
 ///                              to the PointT allocator through the use of
 ///                              `std::allocator_traits<AllocatorT>::rebind_alloc<PointT>`.
@@ -110,6 +112,7 @@ template<
   template<typename AllocatorT> class PointCloudMsgT,
   typename FieldGenerators,
   const bool kIsMutable,
+  const bool kPartialAccess,
   typename AllocatorT>
 class PointCloudMsgWrapper
 {
@@ -147,11 +150,26 @@ class PointCloudMsgWrapper
     std::integral_constant<std::uint32_t, static_cast<std::uint32_t>(sizeof(PointT))>;
 
 public:
+  ///
+  /// @brief      A modifying iterator over the underlying point cloud message. Only relevant if the
+  ///             point cloud type is not const.
+  ///
+  template<bool kIsConstIterator>
+  class CustomIterator;
+
+  using Iterator = CustomIterator<false>;
+  using ConstIterator = CustomIterator<true>;
+
   using value_type = PointT;
-  using iterator = typename PointVectorType::iterator;
-  using const_iterator = typename PointVectorType::const_iterator;
-  using reverse_iterator = typename PointVectorType::reverse_iterator;
-  using const_reverse_iterator = typename PointVectorType::const_reverse_iterator;
+  using iterator =
+    std::conditional_t<kPartialAccess, Iterator, typename PointVectorType::iterator>;
+  using const_iterator =
+    std::conditional_t<kPartialAccess, ConstIterator, typename PointVectorType::const_iterator>;
+  using reverse_iterator = std::conditional_t<
+    kPartialAccess, std::reverse_iterator<Iterator>, typename PointVectorType::reverse_iterator>;
+  using const_reverse_iterator = std::conditional_t<
+    kPartialAccess, std::reverse_iterator<ConstIterator>,
+    typename PointVectorType::const_reverse_iterator>;
 
   ///
   /// @brief      Constructor that wraps a point cloud message. Checks if the message fields
@@ -175,8 +193,9 @@ public:
   }
 
   ///
-  /// A constructor that initializes the message and sets a new frame_id. Note that this only
-  /// compiles for a mutable cloud. It also throws if the message is already initialized.
+  /// @brief      A constructor that initializes the message and sets a new frame_id. Note that this
+  ///             only compiles for a mutable cloud. It also throws if the message is already
+  ///             initialized.
   ///
   /// @param      cloud_ref  A reference to the wrapped cloud
   /// @param[in]  frame_id   A frame id to be set to the message.
@@ -185,8 +204,7 @@ public:
   : m_cloud_ref{cloud_ref}
   {
     static_assert(
-      !std::is_const<CloudMsgT>::value,
-      "\n\nWe must be able to modify this point cloud.\n\n");
+      kIsMutable, "\n\nWe must be able to modify this point cloud.\n\n");
     static_assert(
       detail::has_operator_equals<PointT>::value,
       "\n\nTo guarantee that all struct members are present in the fields of the message, "
@@ -194,6 +212,9 @@ public:
     static_assert(
       sizeof(PointT) < static_cast<std::size_t>(UINT32_MAX),
       "\n\nOnly points with sizeof that fits in uint32_t are supported\n\n");
+    static_assert(
+      !kPartialAccess,
+      "\n\nThis constructor is not available when allowing partial access to the data\n\n");
 
     if (!m_cloud_ref.fields.empty()) {
       throw std::runtime_error(
@@ -250,6 +271,14 @@ public:
       }
       return false;
     }
+    if (kPartialAccess) {
+      // We skip some checks here and expect the user to know what they are doing. If the user did
+      // not specify the correct generators for the point structure, there is no check for this. If
+      // there is no generator for a certain field name, this field will be silently ignored when
+      // reading the data, thus the data in this field while reading/writing to the point cloud
+      // message will be wrong.
+      return true;
+    }
     const auto missing_field_in_struct = find_missing_field(cloud_msg.fields, struct_fields);
     if (missing_field_in_struct) {
       if (error_msg) {
@@ -280,20 +309,20 @@ public:
   }
 
   /// @brief      Push a new point into the message.
-  COMPILE_IF_MUTABLE(CloudMsgT, void) push_back(const PointT & point)
+  COMPILE_IF(kIsMutable, void) push_back(const PointT & point)
   {
     PointT point_copy{point};
-    extend_data_by(sizeof(PointT));
-    m_cloud_ref.row_step += kSizeofPoint::value;
+    extend_data_by(m_cloud_ref.point_step);
+    m_cloud_ref.row_step += m_cloud_ref.point_step;
     m_cloud_ref.width++;
     this->operator[](m_cloud_ref.width - 1U) = point_copy;
   }
 
   /// @brief      Push a new point into the message.
-  COMPILE_IF_MUTABLE(CloudMsgT, void) push_back(PointT && point)
+  COMPILE_IF(kIsMutable, void) push_back(PointT && point)
   {
-    extend_data_by(sizeof(PointT));
-    m_cloud_ref.row_step += kSizeofPoint::value;
+    extend_data_by(m_cloud_ref.point_step);
+    m_cloud_ref.row_step += m_cloud_ref.point_step;
     m_cloud_ref.width++;
     this->operator[](m_cloud_ref.width - 1U) = std::move(point);
   }
@@ -305,11 +334,11 @@ public:
   bool empty() const noexcept {return m_cloud_ref.width == 0U;}
 
   /// Get the first point.
-  COMPILE_IF_MUTABLE(CloudMsgT, PointT &) front() noexcept {return *begin();}
+  COMPILE_IF(kIsMutable, PointT &) front() noexcept {return *begin();}
   /// Get the first point.
   const PointT & front() const noexcept {return *begin();}
   /// Get the last point.
-  COMPILE_IF_MUTABLE(CloudMsgT, PointT &) back() noexcept {return *rbegin();}
+  COMPILE_IF(kIsMutable, PointT &) back() noexcept {return *rbegin();}
   /// Get the last point.
   const PointT & back() const noexcept {return *rbegin();}
 
@@ -323,70 +352,81 @@ public:
               std::to_string(index) + " >= " + std::to_string(size()));
     }
     return reinterpret_cast<const PointT &>(
-      *(m_cloud_ref.data.data() + index * sizeof(PointT)));
+      *(m_cloud_ref.data.data() + index * m_cloud_ref.point_step));
   }
   /// Get a point reference at the specified index. Only compiled if message is not const.
   /// @throws std::runtime_error if the index is out of bounds.
-  COMPILE_IF_MUTABLE(CloudMsgT, PointT &) at(const std::size_t index)
+  COMPILE_IF(kIsMutable, PointT &) at(const std::size_t index)
   {
     if (index >= size()) {
       throw std::out_of_range(
               "Index is out of bounds, " +
               std::to_string(index) + " >= " + std::to_string(size()));
     }
-    return reinterpret_cast<PointT &>(*(m_cloud_ref.data.data() + index * sizeof(PointT)));
+    return reinterpret_cast<PointT &>(*(m_cloud_ref.data.data() + index * m_cloud_ref.point_step));
   }
 
   /// Get a point reference at the specified index.
   const PointT & operator[](const std::size_t index) const noexcept
   {
     return *reinterpret_cast<const PointT * const>(
-      m_cloud_ref.data.data() + index * sizeof(PointT));
+      m_cloud_ref.data.data() + index * m_cloud_ref.point_step);
   }
   /// Get a point reference as a specified index.  Only compiled if message type is not const.
-  COMPILE_IF_MUTABLE(CloudMsgT, PointT &) operator[](const std::size_t index) noexcept
+  COMPILE_IF(kIsMutable, PointT &) operator[](const std::size_t index) noexcept
   {
-    return *reinterpret_cast<PointT *>(m_cloud_ref.data.data() + index * sizeof(PointT));
+    return *reinterpret_cast<PointT *>(m_cloud_ref.data.data() + index * m_cloud_ref.point_step);
   }
 
   /// @brief      Reset the message fields to match the members of the PointT struct. The point
   ///             cloud message is ready for modification after this operation.
-  COMPILE_IF_MUTABLE(CloudMsgT, void) reset_msg(const FieldNameT & frame_id)
+  COMPILE_IF(kIsMutable, void) reset_msg(const FieldNameT & frame_id)
   {
     reset_msg(frame_id, generate_fields_from_point<PointT, FieldGenerators>());
   }
 
   /// @brief      Clear the message.
-  COMPILE_IF_MUTABLE(CloudMsgT, void) clear() {
+  COMPILE_IF(kIsMutable, void) clear() {
     reset_msg(m_cloud_ref.header.frame_id);
   }
 
   /// @brief      Allocate memory to hold a specified number of points.
-  COMPILE_IF_MUTABLE(CloudMsgT, void) reserve(const size_t expected_number_of_points) {
-    m_cloud_ref.data.reserve(sizeof(PointT) * expected_number_of_points);
+  COMPILE_IF(kIsMutable, void) reserve(const size_t expected_number_of_points) {
+    m_cloud_ref.data.reserve(m_cloud_ref.point_step * expected_number_of_points);
   }
 
   /// @brief      Resize the container to hold a given number of points.
-  COMPILE_IF_MUTABLE(CloudMsgT, void) resize(const std::uint32_t new_number_of_points) {
+  COMPILE_IF(kIsMutable, void) resize(const std::uint32_t new_number_of_points) {
     m_cloud_ref.width = new_number_of_points;
-    m_cloud_ref.row_step = m_cloud_ref.width * kSizeofPoint::value;
+    m_cloud_ref.row_step = m_cloud_ref.width * m_cloud_ref.point_step;
     m_cloud_ref.data.resize(m_cloud_ref.row_step);
   }
 
   /// An iterator to the beginning of data.  Only compiled if point cloud message type is not const.
-  COMPILE_IF_MUTABLE(CloudMsgT, iterator) begin() noexcept {
+  COMPILE_IF(kIsMutable && !kPartialAccess, iterator) begin() noexcept {
     return iterator{reinterpret_cast<PointT *>(&m_cloud_ref.data[0U])};
   }
+
+  /// An iterator to the beginning of data.  Only compiled if point cloud message type is not const.
+  COMPILE_IF(kIsMutable && kPartialAccess, iterator) begin() noexcept {
+    return iterator{this, 0U};
+  }
+
   /// An iterator to the end of data. Only compiled if point cloud message type is not const.
-  COMPILE_IF_MUTABLE(CloudMsgT, iterator) end() noexcept {
+  COMPILE_IF(kIsMutable && !kPartialAccess, iterator) end() noexcept {
     return iterator{reinterpret_cast<PointT *>(&m_cloud_ref.data[m_cloud_ref.data.size()])};
   }
+  /// An iterator to the end of data. Only compiled if point cloud message type is not const.
+  COMPILE_IF(kIsMutable && kPartialAccess, iterator) end() noexcept {
+    return iterator{this, size()};
+  }
+
   /// A reverse iterator staring position.  Only compiled if point cloud message type is not const.
-  COMPILE_IF_MUTABLE(CloudMsgT, reverse_iterator) rbegin() noexcept {
+  COMPILE_IF(kIsMutable, reverse_iterator) rbegin() noexcept {
     return std::make_reverse_iterator(end());
   }
   /// A reverse iterator end position.  Only compiled if point cloud message type is not const.
-  COMPILE_IF_MUTABLE(CloudMsgT, reverse_iterator) rend() noexcept {
+  COMPILE_IF(kIsMutable, reverse_iterator) rend() noexcept {
     return std::make_reverse_iterator(begin());
   }
   /// A constant iterator to the beginning of data.
@@ -398,15 +438,37 @@ public:
   /// A constant reverse iterator to the end of reversed data.
   const_reverse_iterator rend() const noexcept {return crend();}
   /// A constant iterator to the beginning of data.
-  const_iterator cbegin() const noexcept
+  COMPILE_IF(!kPartialAccess, const_iterator) cbegin() const noexcept
   {
     return const_iterator{reinterpret_cast<const PointT * const>(&m_cloud_ref.data[0U])};
   }
-  /// A constant iterator to the end of data.
-  const_iterator cend() const noexcept
+  COMPILE_IF(kPartialAccess, const_iterator) cbegin() const noexcept
+  {
+    return const_iterator{this, 0U};
+  }
+  ///
+  /// @brief      A constant iterator to the end of data.
+  ///
+  /// @note       Only compiled if partial access is **not** allowed.
+  ///
+  /// @details    This reinterprets the underlying data as a vector of points and provides a
+  ///             standard underlying vector iterator.
+  ///
+  COMPILE_IF(!kPartialAccess, const_iterator) cend() const noexcept
   {
     return const_iterator{
       reinterpret_cast<const PointT * const>(&m_cloud_ref.data[m_cloud_ref.data.size()])};
+  }
+  ///
+  /// @brief      A constant iterator to the end of data.
+  ///
+  /// @note       Only compiled if partial access is allowed.
+  ///
+  /// @details    This returns a custom iterator that allows for partial access to the data.
+  ///
+  COMPILE_IF(kPartialAccess, const_iterator) cend() const noexcept
+  {
+    return const_iterator{this, size()};
   }
   /// A constant reverse iterator to the reverse beginning of data.
   const_reverse_iterator crbegin() const noexcept {return std::make_reverse_iterator(cend());}
@@ -415,7 +477,7 @@ public:
 
 private:
   /// Allocate additional memory in the end of data field of the message.
-  COMPILE_IF_MUTABLE(CloudMsgT, void) extend_data_by(const std::size_t bytes_to_allocate)
+  COMPILE_IF(kIsMutable, void) extend_data_by(const std::size_t bytes_to_allocate)
   {
     const auto new_size = m_cloud_ref.data.size() + bytes_to_allocate;
     m_cloud_ref.data.resize(new_size);
@@ -423,7 +485,7 @@ private:
 
   /// @brief      Reset the message fields to match the members of the PointT struct. The point
   ///             cloud message is ready for modification after this operation.
-  COMPILE_IF_MUTABLE(CloudMsgT, void) reset_msg(
+  COMPILE_IF(kIsMutable, void) reset_msg(
     const FieldNameT & frame_id,
     const sensor_msgs::msg::PointCloud2::_fields_type & generated_fields)
   {
@@ -440,6 +502,23 @@ private:
     m_cloud_ref.row_step = 0U;
   }
 
+  ///
+  /// @brief      Check that the generated fields actually cover all the point members.
+  ///
+  /// @details    This function uses a clever trick to check if all the fields of the point are
+  ///             covered by the generated fields. The idea is the following:
+  ///             1. Allocate storage as big as a point.
+  ///             2. Fill the storage with zeros.
+  ///             3. Iterate through all fields and set the appropriate memory to ones.
+  ///             4. Flip all bits - now, if all fields are present, only the padding is non-zero.
+  ///             5. Reinterpret this memory as a point.
+  ///             6. Compare this point to a value initialized one. If these points are equal - we
+  ///                have all fields. Otherwise, we are missing a field.
+  ///
+  /// @param[in]  generated_fields  The generated fields
+  ///
+  /// @return     True if all point members are covered and false otherwise.
+  ///
   bool check_that_generated_fields_cover_all_point_members(
     const sensor_msgs::msg::PointCloud2::_fields_type & generated_fields)
   {
@@ -484,13 +563,145 @@ private:
   CloudMsgT & m_cloud_ref;
 };
 
+///
+/// @brief      This class describes a point cloud message wrapper iterator.
+///
+/// @details    This iterator is used only if the partial access to the data is allowed. It is
+///             designed to still be compliant to the standard algorithms. It steps over the data in
+///             steps of message width. This iterator is used both for a normal iterator as well as
+///             for const iterator through the use of a boolean template parameter.
+///
+/// @tparam     PointT            Point type
+/// @tparam     PointCloudMsgT    Point cloud message type
+/// @tparam     FieldGenerators   Field generators
+/// @tparam     kIsMutable        Is the cloud mutable
+/// @tparam     kPartialAccess    Is partial access allowed
+/// @tparam     AllocatorT        An allocator
+/// @tparam     kIsConstIterator  Is this a const iterator
+///
+template<
+  typename PointT,
+  template<typename AllocatorT> class PointCloudMsgT,
+  typename FieldGenerators,
+  const bool kIsMutable,
+  const bool kPartialAccess,
+  typename AllocatorT>
+template<bool kIsConstIterator>
+class PointCloudMsgWrapper<
+    PointT, PointCloudMsgT, FieldGenerators, kIsMutable, kPartialAccess, AllocatorT>::CustomIterator
+{
+  using WrapperPtr =
+    std::conditional_t<kIsConstIterator, const PointCloudMsgWrapper *, PointCloudMsgWrapper *>;
+
+public:
+  using iterator_category = std::random_access_iterator_tag;
+  using value_type = PointT;
+  using difference_type = std::ptrdiff_t;
+  using reference = std::conditional_t<kIsConstIterator, const PointT &, PointT &>;
+  using pointer = std::conditional_t<kIsConstIterator, const PointT * const, PointT *>;
+
+  ///
+  /// @brief      Constructs a new instance of an iterator.
+  ///
+  explicit CustomIterator(WrapperPtr wrapper, std::size_t index)
+    : m_wrapper {wrapper}, m_index{index} {}
+
+  ///
+  /// @brief      Get the underlying value.
+  ///
+  COMPILE_IF(!kIsConstIterator, reference) operator*() noexcept {
+    return m_wrapper->operator[](m_index);
+  }
+  ///
+  /// @brief      Get the underlying value.
+  ///
+  COMPILE_IF(kIsConstIterator, reference) operator*() const noexcept {
+    return m_wrapper->operator[](m_index);
+  }
+
+  ///
+  /// @brief      Increment operator.
+  ///
+  /// @return     The result of the increment
+  ///
+  CustomIterator & operator++() noexcept
+  {
+    ++m_index;
+    return *this;
+  }
+
+  ///
+  /// @brief      Increment operator.
+  ///
+  /// @return     The result of the increment
+  ///
+  CustomIterator operator++(int) noexcept
+  {
+    CustomIterator past = *this;
+    ++(*this);
+    return past;
+  }
+
+  ///
+  /// @brief      Decrement operator.
+  ///
+  /// @return     The result of the decrement
+  ///
+  CustomIterator & operator--() noexcept
+  {
+    --m_index;
+    return *this;
+  }
+
+  ///
+  /// @brief      Decrement operator.
+  ///
+  /// @return     The result of the decrement
+  ///
+  CustomIterator operator--(int) noexcept
+  {
+    CustomIterator past = *this;
+    --(*this);
+    return past;
+  }
+
+  ///
+  /// @brief      Equality operator.
+  ///
+  /// @param[in]  other  The other
+  ///
+  /// @return     The result of the equality
+  ///
+  bool operator==(const CustomIterator & other) const noexcept
+  {
+    return (m_wrapper == other.m_wrapper) && (m_index == other.m_index);
+  }
+
+  ///
+  /// @brief      Inequality operator.
+  ///
+  /// @param[in]  other  The other
+  ///
+  /// @return     The result of the inequality
+  ///
+  bool operator!=(const CustomIterator & other) const noexcept
+  {
+    return !(*this == other);
+  }
+
+private:
+  WrapperPtr m_wrapper{};
+  std::size_t m_index{};
+};
+
+
 /// A typedef for the PointCloudMsgWrapper to represent a view that wraps a const cloud message.
 template<
   typename PointT,
   typename FieldGeneratorsT = detail::DefaultFieldGenerators,
   typename AllocatorT = std::allocator<void>>
 using PointCloud2View = PointCloudMsgWrapper<
-  PointT, sensor_msgs::msg::PointCloud2_, FieldGeneratorsT, false, AllocatorT>;
+  PointT, sensor_msgs::msg::PointCloud2_, FieldGeneratorsT, false, false, AllocatorT>;
 
 /// A typedef for the PointCloudMsgWrapper to represent a view that wraps a mutable cloud message.
 template<
@@ -498,10 +709,48 @@ template<
   typename FieldGeneratorsT = detail::DefaultFieldGenerators,
   typename AllocatorT = std::allocator<void>>
 using PointCloud2Modifier = PointCloudMsgWrapper<
-  PointT, sensor_msgs::msg::PointCloud2_, FieldGeneratorsT, true, AllocatorT>;
+  PointT, sensor_msgs::msg::PointCloud2_, FieldGeneratorsT, true, false, AllocatorT>;
+
+///
+/// @brief      A typedef for the PointCloudMsgWrapper to represent a view that wraps a const cloud
+///             message that allows partial data access.
+///
+/// @details    Partial data access allows getting only part of the data that is stored in the point
+///             cloud message. The limitation to such access is that the data type, names and
+///             offsets of the subset of the fields should still match the ones stored in the point
+///             cloud message. So it is possible to read PointXY from a point cloud that contains
+///             data generated from PointXYZ structs, but it is not possible to get PointXZ (Y
+///             skipped) data.
+///
+template<
+  typename PointT,
+  typename FieldGeneratorsT = detail::DefaultFieldGenerators,
+  typename AllocatorT = std::allocator<void>>
+using PointCloud2PartialView = PointCloudMsgWrapper<
+  PointT, sensor_msgs::msg::PointCloud2_, FieldGeneratorsT, false, true, AllocatorT>;
+
+///
+/// @brief      A typedef for the PointCloudMsgWrapper to represent a view that wraps a mutable
+///             cloud message that allows partial data access.
+///
+/// @details    Partial data access allows getting only part of the data that is stored in the point
+///             cloud message. The limitation to such access is that the data type, names and
+///             offsets of the subset of the fields should still match the ones stored in the point
+///             cloud message. So it is possible to read PointXY from a point cloud that contains
+///             data generated from PointXYZ structs, but it is not possible to get PointXZ (Y
+///             skipped) data.
+///
+/// @note       This typedef does _not_ allow initializing a new point cloud message.
+///
+template<
+  typename PointT,
+  typename FieldGeneratorsT = detail::DefaultFieldGenerators,
+  typename AllocatorT = std::allocator<void>>
+using PointCloud2PartialModifier = PointCloudMsgWrapper<
+  PointT, sensor_msgs::msg::PointCloud2_, FieldGeneratorsT, true, true, AllocatorT>;
 
 }  // namespace point_cloud_msg_wrapper
 
-#undef COMPILE_IF_MUTABLE
+#undef COMPILE_IF
 
 #endif  // POINT_CLOUD_MSG_WRAPPER__POINT_CLOUD_MSG_WRAPPER_HPP_
